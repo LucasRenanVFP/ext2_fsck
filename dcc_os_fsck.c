@@ -433,7 +433,7 @@ void lost_found(int sd, int inode_position, int inode_index, char *argv1) {
   strcat(filename, "#");
   char *inode_number = int_to_string(inode_index);
   strcat(filename, inode_number);
-  int fd = open(filename, O_RDWR | O_CREAT);
+  int fd = open(filename, O_RDWR | O_CREAT, 0666);
   struct ext2_inode inode;
   lseek(sd, inode_position, SEEK_SET);
   read(sd, &inode, sizeof(inode));
