@@ -273,7 +273,6 @@ void treat_multi_own(int group, int sd, int *taken) {
         finished = 1;
         break;
       }
-      printf("Meu inode %d tem o bloco %d\n", i, block);
       if(taken[block]) {
         printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
         if(get_answer()) remove_inode(group, sd, i);
@@ -293,7 +292,6 @@ void treat_multi_own(int group, int sd, int *taken) {
         finished = 1;
         break;
       }
-      printf("Meu inode %d tem o bloco %d\n", i, block);
       if(taken[block]) {
         printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
         if(get_answer()) remove_inode(group, sd, i);
@@ -321,7 +319,6 @@ void treat_multi_own(int group, int sd, int *taken) {
           finished = 1;
           break;
         }
-        printf("Meu inode tem o bloco %d\n", block);
         if(taken[block]) {
           printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
           if(get_answer()) remove_inode(group, sd, i);
@@ -357,7 +354,6 @@ void treat_multi_own(int group, int sd, int *taken) {
             finished = 1;
             break;
           }
-          printf("Meu inode tem o bloco %d\n", block);
           if(taken[block]) {
             printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
             if(get_answer()) remove_inode(group, sd, i);
@@ -382,7 +378,6 @@ void treat_permission(int group, int sd) {
   struct ext2_group_desc desc2;
   lseek(sd, BASE_OFFSET + block_size, SEEK_SET);
   read(sd, &desc2, sizeof(desc2));
-  if(group == 1 && desc.bg_inode_table == desc2.bg_inode_table) printf("IGUAL\n");
   
   for(int i = 0; i < super.s_inodes_per_group; i++) {
     int inode_position = BLOCK_OFFSET(desc.bg_inode_table) + i * sizeof(inode);
@@ -438,9 +433,7 @@ void lost_found(int sd, int inode_position, int inode_index, char *argv1) {
   strcat(filename, "#");
   char *inode_number = int_to_string(inode_index);
   strcat(filename, inode_number);
-  printf("%s filename\n", filename);
   int fd = open(filename, O_RDWR | O_CREAT);
-  printf("abriu. filename = %s, fd = %d", filename, fd);
   struct ext2_inode inode;
   lseek(sd, inode_position, SEEK_SET);
   read(sd, &inode, sizeof(inode));
@@ -486,14 +479,9 @@ int main(int argc, char **argv) {
   lseek(sd, BASE_OFFSET + block_size, SEEK_SET);
   read(sd, &desc, sizeof(desc));
   unsigned int group_count = 1 + (super.s_blocks_count-1) / super.s_blocks_per_group;
-  int fd = open("/home/lucaskywalker/alo/coco", O_RDWR | O_CREAT); 
   int *taken;//1 se o bloco ja tem dono. 0 caso contrario
   taken = malloc(((super.s_blocks_per_group * group_count) * 4 + 5) * sizeof(int));
   memset(taken, 0, sizeof(taken));
-  remove_inode(0, sd, 1);
-  remove_inode(0, sd, 10);
-  remove_inode(0, sd, 1);
-  lost_found(sd, 125, 133, argv[1]);
   for(int i = 0; i < group_count; i++) {
     fprintf(stderr, "Resolvendo para o grupo de blocos %d\n", i);
 
