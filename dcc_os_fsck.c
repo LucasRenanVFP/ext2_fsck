@@ -1,10 +1,12 @@
 #include<stdio.h>
 #include<fcntl.h>
 #include<unistd.h>
+#include<stdlib.h>
 #include<linux/fs.h>
 #include<sys/types.h>
+#include<sys/stat.h>
 #include<string.h>
-#define block_size 1024 << super.s_log_block_size
+#define block_size (1024 << super.s_log_block_size)
 #define BASE_OFFSET 1024
 #define BLOCK_OFFSET(block) (BASE_OFFSET + (block-1)*block_size) 
 #define EXT2_NDIR_BLOCKS    12
@@ -223,25 +225,41 @@ void treat_super(int sd) {
   }
 }
 
-void remove_inode(int sd, int inode_position) {
+void remove_inode(int group, int sd, int index) {
+  struct ext2_group_desc desc;
+  struct ext2_super_block super;
+  lseek(sd, 1024, SEEK_SET);
+  read(sd, &super, sizeof(super));
+  lseek(sd, BASE_OFFSET + block_size + group * sizeof(desc), SEEK_SET);
+  read(sd, &desc, sizeof(desc));
+
+  int i_bitmap_position = desc.bg_inode_bitmap;
+  printf("posicao = %d\n", i_bitmap_position);
+  int inode_bitmap[block_size >> 4];
+  lseek(sd, BLOCK_OFFSET(i_bitmap_position), SEEK_SET);
+  read(sd, &inode_bitmap, sizeof(inode_bitmap));
+  int id1 = index / 32;//Cada inteiro do bitmap tem 32 inodes correspondentes. Index 0-based
+  int id2 = index % 32;
+  for(int i = 0; i < 10; i++) printf("%d bitmap = %d\n", i, inode_bitmap[i]);
   
+  if(inode_bitmap[id1] & (1ll << id2)) {//Se o indice consta no inode_bitmap
+    inode_bitmap[id1] ^= (1ll << id2);
+  }
+  else fprintf(stderr, "Tentando remover um inode ja removido\n");
+  lseek(sd, BLOCK_OFFSET(i_bitmap_position), SEEK_SET);
+  write(sd, &inode_bitmap, sizeof(inode_bitmap));
 }
 
-void treat_multi_own(int sd) {
+void treat_multi_own(int group, int sd, int *taken) {
   struct ext2_super_block super;
   fprintf(stderr, "Procurando dono multiplo de bloco\n");
   lseek(sd, 1024, SEEK_SET);
   read(sd, &super, sizeof(super));
 
-  int taken[super.s_blocks_count + 5];//1 se o bloco ja tem dono. 0 caso contrario
-  memset(taken, 0, sizeof(taken));
-
-  unsigned int group_count = 1 + (super.s_blocks_count-1) / super.s_blocks_per_group;
   struct ext2_group_desc desc;
   struct ext2_inode inode;
-  lseek(sd, BASE_OFFSET + block_size, SEEK_SET);
+  lseek(sd, BASE_OFFSET + block_size + group * sizeof(desc), SEEK_SET);//group descriptor do grupo group
   read(sd, &desc, sizeof(desc));
-  
   for(int i = 0; i < super.s_inodes_per_group; i++) {
     int inode_position = BLOCK_OFFSET(desc.bg_inode_table) + i * sizeof(inode);
     lseek(sd, inode_position, SEEK_SET);
@@ -255,10 +273,10 @@ void treat_multi_own(int sd) {
         finished = 1;
         break;
       }
-      printf("Meu inode tem o bloco %d\n", block);
+      printf("Meu inode %d tem o bloco %d\n", i, block);
       if(taken[block]) {
         printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
-        if(get_answer()) remove_inode(sd, inode_position);
+        if(get_answer()) remove_inode(group, sd, i);
       }
       taken[block] = 1;
     }
@@ -275,10 +293,10 @@ void treat_multi_own(int sd) {
         finished = 1;
         break;
       }
-      printf("Meu inode tem o bloco %d\n", block);
+      printf("Meu inode %d tem o bloco %d\n", i, block);
       if(taken[block]) {
         printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
-        if(get_answer()) remove_inode(sd, inode_position);
+        if(get_answer()) remove_inode(group, sd, i);
       }
       taken[block] = 1;
     }
@@ -306,7 +324,7 @@ void treat_multi_own(int sd) {
         printf("Meu inode tem o bloco %d\n", block);
         if(taken[block]) {
           printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
-          if(get_answer()) remove_inode(sd, inode_position);
+          if(get_answer()) remove_inode(group, sd, i);
         }
         taken[block] = 1;
       }
@@ -342,7 +360,7 @@ void treat_multi_own(int sd) {
           printf("Meu inode tem o bloco %d\n", block);
           if(taken[block]) {
             printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
-            if(get_answer()) remove_inode(sd, inode_position);
+            if(get_answer()) remove_inode(group, sd, i);
           }
           taken[block] = 1;
         }
@@ -351,17 +369,20 @@ void treat_multi_own(int sd) {
   }
 }
 
-void treat_permission(int sd) {
+void treat_permission(int group, int sd) {
   struct ext2_super_block super;
   fprintf(stderr, "Procurando inode com permissao zerada\n");
   lseek(sd, 1024, SEEK_SET);
   read(sd, &super, sizeof(super));
   
-  unsigned int group_count = 1 + (super.s_blocks_count - 1) / super.s_blocks_per_group;
   struct ext2_group_desc desc;
   struct ext2_inode inode;
-  lseek(sd, BASE_OFFSET + block_size, SEEK_SET);
+  lseek(sd, BASE_OFFSET + group * sizeof(desc), SEEK_SET);
   read(sd, &desc, sizeof(desc));
+  struct ext2_group_desc desc2;
+  lseek(sd, BASE_OFFSET + block_size, SEEK_SET);
+  read(sd, &desc2, sizeof(desc2));
+  if(group == 1 && desc.bg_inode_table == desc2.bg_inode_table) printf("IGUAL\n");
   
   for(int i = 0; i < super.s_inodes_per_group; i++) {
     int inode_position = BLOCK_OFFSET(desc.bg_inode_table) + i * sizeof(inode);
@@ -369,21 +390,87 @@ void treat_permission(int sd) {
     read(sd, &inode, sizeof(inode));
     if(inode.i_size == 0) continue;
     if(inode.i_mode == 0) {
-      printf("Inode %d tem permissoes zeradas. Deseja alterar as permissoes? (Y/N)", i);
+      printf("Inode %d tem permissoes zeradas. Deseja alterar as permissoes? (Y/N)", i + super.s_inodes_per_group * group);
       if(get_answer()) {
         printf("Digite um inteiro correspondente a permissao desejada.\n");
         int perm;
         scanf("%d", &perm);
         inode.i_mode = perm;
+        lseek(sd, inode_position, SEEK_SET);
         write(sd, &inode, sizeof(inode));
       }
     }
   }
-  
 }
 
-void treat_orphans(int sd) {
+char *int_to_string(int number) {
+  char *ret = malloc(sizeof(char) * 20);
+  if(number == 0) {
+    ret[0] = '0';
+    ret[1] = '\0';
+    return ret;
+  }
+  int len = 0;
+  int n = number;
+  while(n > 0) {
+    len++, n /= 10;
+  }
+  n = number;
+  ret[len--] = '\0';
+  while(n > 0) {
+    ret[len--] = '0' + n % 10;
+    n /= 10;
+  }
+  return ret;
+}
+
+void lost_found(int sd, int inode_position, int inode_index, char *argv1) {
+  char filename[50];
+  strcpy(filename, argv1);
+  int sz = strlen(filename);
+  while(sz > 0 && filename[sz - 1] != '/') {
+    filename[sz - 1] = '\0';
+    sz--;
+  }
+  if(sz == 0) strcat(filename, "./");
+  strcat(filename, "lost+found/");
+  mkdir(filename, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+  strcat(filename, "#");
+  char *inode_number = int_to_string(inode_index);
+  strcat(filename, inode_number);
+  printf("%s filename\n", filename);
+  int fd = open(filename, O_RDWR | O_CREAT);
+  printf("abriu. filename = %s, fd = %d", filename, fd);
+  struct ext2_inode inode;
+  lseek(sd, inode_position, SEEK_SET);
+  read(sd, &inode, sizeof(inode));
+  lseek(fd, 0, SEEK_SET);
+  write(fd, &inode, sizeof(inode));
+}
+
+void treat_orphans(int group, int sd, char *argv1) {
+  struct ext2_super_block super;
   fprintf(stderr, "Procurando inodes orfaos\n");
+  lseek(sd, 1024, SEEK_SET);
+  read(sd, &super, sizeof(super));
+  
+  struct ext2_group_desc desc;
+  struct ext2_inode inode;
+  lseek(sd, BASE_OFFSET + block_size + group * sizeof(desc), SEEK_SET);
+  read(sd, &desc, sizeof(desc));
+  
+  for(int i = 0; i < super.s_inodes_per_group; i++) {
+    int inode_position = BLOCK_OFFSET(desc.bg_inode_table) + i * sizeof(inode);
+    lseek(sd, inode_position, SEEK_SET);
+    read(sd, &inode, sizeof(inode));
+    if(inode.i_size == 0) continue;
+    if(inode.i_links_count == 0) {
+      printf("Inode %d nao tem diretorio. Deseja adiciona-lo a lost+found? (Y/N)", i + super.s_inodes_per_group * group);
+      if(get_answer()) {
+        lost_found(sd, inode_position, super.s_inodes_per_group * group + i, argv1);        
+      }
+    }
+  }
 }
 
 int main(int argc, char **argv) {
@@ -391,14 +478,33 @@ int main(int argc, char **argv) {
   treat_super(sd);
   if(!ok_super(sd)) return 0;
   fprintf(stderr, "Super bloco ok\n\n\n");
-   
-  treat_multi_own(sd);
-  fprintf(stderr, "Bloco com dois inodes resolvido\n\n\n");
   
-  treat_permission(sd);
-  fprintf(stderr, "Permissao resolvida\n\n\n");
+  struct ext2_group_desc desc;
+  struct ext2_super_block super;
+  lseek(sd, BASE_OFFSET, SEEK_SET);
+  read(sd, &super, sizeof(super));
+  lseek(sd, BASE_OFFSET + block_size, SEEK_SET);
+  read(sd, &desc, sizeof(desc));
+  unsigned int group_count = 1 + (super.s_blocks_count-1) / super.s_blocks_per_group;
+  int fd = open("/home/lucaskywalker/alo/coco", O_RDWR | O_CREAT); 
+  int *taken;//1 se o bloco ja tem dono. 0 caso contrario
+  taken = malloc(((super.s_blocks_per_group * group_count) * 4 + 5) * sizeof(int));
+  memset(taken, 0, sizeof(taken));
+  remove_inode(0, sd, 1);
+  remove_inode(0, sd, 10);
+  remove_inode(0, sd, 1);
+  lost_found(sd, 125, 133, argv[1]);
+  for(int i = 0; i < group_count; i++) {
+    fprintf(stderr, "Resolvendo para o grupo de blocos %d\n", i);
+
+    treat_multi_own(i, sd, taken);
+    fprintf(stderr, "Bloco com dois inodes resolvido\n\n\n");
   
-  treat_orphans(sd);
-  fprintf(stderr, "Orfaos resolvidos\n\n\n");
+    treat_permission(i, sd);
+    fprintf(stderr, "Permissao resolvida\n\n\n");
+  
+    treat_orphans(i, sd, argv[1]);
+    fprintf(stderr, "Orfaos resolvidos\n\n\n");
+  }
   return 0;
 }
