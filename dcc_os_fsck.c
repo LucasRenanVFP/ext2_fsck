@@ -246,14 +246,107 @@ void treat_multi_own(int sd) {
     int inode_position = BLOCK_OFFSET(desc.bg_inode_table) + i * sizeof(inode);
     lseek(sd, inode_position, SEEK_SET);
     read(sd, &inode, sizeof(inode));
-    for(int j = 0; j < inode.i_blocks; j++) {
+    if(inode.i_size == 0) continue;
+    
+    int finished = 0;
+    for(int j = 0; j < 12; j++) {//direct-block
       int block = inode.i_block[j];
+      if(block == 0) {
+        finished = 1;
+        break;
+      }
       printf("Meu inode tem o bloco %d\n", block);
       if(taken[block]) {
-        printf("Bloco com mais de um dono. Deseja remover um dos inodes? (Y/N)");
-        if(get_answer()) remove_inode(sd, inode_position); 
+        printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
+        if(get_answer()) remove_inode(sd, inode_position);
       }
       taken[block] = 1;
+    }
+    if(finished) continue;
+
+    int indirect_position = inode.i_block[12];
+    if(indirect_position == 0) continue;
+    int indirect_blocks[block_size >> 2];
+    lseek(sd, BLOCK_OFFSET(indirect_position), SEEK_SET);
+    read(sd, &indirect_blocks, sizeof(indirect_blocks));
+    for(int j = 0; j < block_size >> 2; j++) {
+      int block = indirect_blocks[j];
+      if(block == 0) {
+        finished = 1;
+        break;
+      }
+      printf("Meu inode tem o bloco %d\n", block);
+      if(taken[block]) {
+        printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
+        if(get_answer()) remove_inode(sd, inode_position);
+      }
+      taken[block] = 1;
+    }
+    if(finished) continue;
+
+    int doubly_position = inode.i_block[13];
+    if(doubly_position == 0) continue;
+    int doubly_blocks[block_size >> 2];
+    lseek(sd, BLOCK_OFFSET(doubly_position), SEEK_SET);
+    read(sd, &doubly_blocks, sizeof(doubly_blocks));
+    for(int k = 0; k < block_size >> 2; k++) {
+      if(finished) break;
+      if(doubly_blocks[k] == 0) {
+        finished = 1;
+        break;
+      }
+      lseek(sd, BLOCK_OFFSET(doubly_blocks[k]), SEEK_SET);
+      read(sd, &indirect_blocks, sizeof(indirect_blocks));
+      for(int j = 0; j < block_size >> 2; j++) {
+        int block = indirect_blocks[j];
+        if(block == 0) {
+          finished = 1;
+          break;
+        }
+        printf("Meu inode tem o bloco %d\n", block);
+        if(taken[block]) {
+          printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
+          if(get_answer()) remove_inode(sd, inode_position);
+        }
+        taken[block] = 1;
+      }
+    }
+    if(finished) continue;
+
+    int triply_position = inode.i_block[14];
+    if(triply_position == 0) continue;
+    int triply_blocks[block_size >> 2];
+    lseek(sd, BLOCK_OFFSET(triply_position), SEEK_SET);
+    read(sd, &triply_blocks, sizeof(triply_blocks));
+    for(int x = 0; x < block_size >> 2; x++) {
+      if(finished) break;
+      if(triply_blocks[x] == 0) {
+        break;
+      }
+      lseek(sd, BLOCK_OFFSET(triply_blocks[x]), SEEK_SET);
+      read(sd, &doubly_blocks, sizeof(doubly_blocks));
+      for(int k = 0; k < block_size >> 2; k++) {
+        if(finished) break;
+        if(doubly_blocks[k] == 0) {
+          finished = 1;
+          break;
+        }
+        lseek(sd, BLOCK_OFFSET(doubly_blocks[k]), SEEK_SET);
+        read(sd, &indirect_blocks, sizeof(indirect_blocks));
+        for(int j = 0; j < block_size >> 2; j++) {
+          int block = indirect_blocks[j];
+          if(block == 0) {
+            finished = 1;
+            break;
+          }
+          printf("Meu inode tem o bloco %d\n", block);
+          if(taken[block]) {
+            printf("Bloco %d com mais de um dono. Deseja remover um dos inodes? (Y/N)", block);
+            if(get_answer()) remove_inode(sd, inode_position);
+          }
+          taken[block] = 1;
+        }
+      }
     }
   }
 }
@@ -274,7 +367,7 @@ void treat_permission(int sd) {
     int inode_position = BLOCK_OFFSET(desc.bg_inode_table) + i * sizeof(inode);
     lseek(sd, inode_position, SEEK_SET);
     read(sd, &inode, sizeof(inode));
-
+    if(inode.i_size == 0) continue;
     if(inode.i_mode == 0) {
       printf("Inode %d tem permissoes zeradas. Deseja alterar as permissoes? (Y/N)", i);
       if(get_answer()) {
