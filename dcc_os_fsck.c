@@ -175,6 +175,7 @@ int ok_super(int sd) {
   struct ext2_super_block super;
   lseek(sd, 1024, SEEK_SET);
   read(sd, &super, sizeof(super));
+  printf("magic is %d\n", super.s_magic);
   if(super.s_magic != 0xEF53) {//super block esta errado
     return 0;
   }
@@ -183,24 +184,29 @@ int ok_super(int sd) {
 }
 
 void fix_super(int sd) {
+  printf("sd = %d\n", sd);
   struct ext2_super_block super;
   fprintf(stderr, "Tentando backup em 8193\n");
-  lseek(sd, 8193, SEEK_SET);
+  lseek(sd, 1024 * 8193, SEEK_SET);
+  printf("BLOCK SIZE %d\n", block_size);
   read(sd, &super, sizeof(super));
+  printf("magic 8 = %d\n", super.s_magic);
   lseek(sd, 1024, SEEK_SET);
   write(sd, &super, sizeof(super));
   if(ok_super(sd)) return;
   
   fprintf(stderr, "Tentando backup em 16384\n");
-  lseek(sd, 16384, SEEK_SET);
+  lseek(sd, 2048 * 16383 + 1024, SEEK_SET);
   read(sd, &super, sizeof(super));
+  printf("magic 16 = %d\n", super.s_magic);
   lseek(sd, 1024, SEEK_SET);
   write(sd, &super, sizeof(super));
   if(ok_super(sd)) return;
   
   fprintf(stderr, "Tentando backup em 32768\n");
-  lseek(sd, 32768, SEEK_SET);
+  lseek(sd, 32767 * 4096 + 1024, SEEK_SET);
   read(sd, &super, sizeof(super));
+  printf("magic 32 = %d\n", super.s_magic);
   lseek(sd, 1024, SEEK_SET);
   write(sd, &super, sizeof(super));
 }
@@ -234,7 +240,6 @@ void remove_inode(int group, int sd, int index) {
   read(sd, &desc, sizeof(desc));
 
   int i_bitmap_position = desc.bg_inode_bitmap;
-  printf("posicao = %d\n", i_bitmap_position);
   int inode_bitmap[block_size >> 4];
   lseek(sd, BLOCK_OFFSET(i_bitmap_position), SEEK_SET);
   read(sd, &inode_bitmap, sizeof(inode_bitmap));
@@ -471,7 +476,7 @@ int main(int argc, char **argv) {
   treat_super(sd);
   if(!ok_super(sd)) return 0;
   fprintf(stderr, "Super bloco ok\n\n\n");
-  
+   
   struct ext2_group_desc desc;
   struct ext2_super_block super;
   lseek(sd, BASE_OFFSET, SEEK_SET);
